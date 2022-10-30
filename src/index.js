@@ -1,59 +1,92 @@
 import './css/styles.css';
+import { pixabay } from './js/pixabay';
+import { renderGallery } from './js/renderGallery';
 import Notiflix from 'notiflix';
 import SimpleLightbox from 'simplelightbox';
+
 import 'simplelightbox/dist/simple-lightbox.min.css';
-import { getPictures, page, query } from './js/pixabay';
-import { createMarkup } from './js/markup';
-import { formRef, galleryRef, loadRef } from './js/refs';
 
-formRef.addEventListener('submit', onSubmit);
-loadRef.addEventListener('click', onLoadClick);
+const searchForm = document.querySelector('#search-form');
+const gallery = document.querySelector('.gallery');
+const loadMoreBtn = document.querySelector('.btn-load-more');
+let query = '';
+let page = 1;
+let simpleLightBox;
+const perPage = 40;
 
-const lightbox = new SimpleLightbox('.gallery a');
+searchForm.addEventListener('submit', onSearchForm);
+loadMoreBtn.addEventListener('click', onLoadMoreBtn);
 
-async function onSubmit(event) {
-  event.preventDefault();
-  const searchQuery = event.currentTarget.elements.searchQuery.value
-    .trim()
-    .toLowerCase();
-  if (!searchQuery) {
-    Notiflix.Notify.failure('Enter a search query!');
+function onSearchForm(e) {
+  e.preventDefault();
+  window.scrollTo({ top: 0 });
+  page = 1;
+  query = e.currentTarget.searchQuery.value.trim();
+  gallery.innerHTML = '';
+  loadMoreBtn.classList.add('is-hidden');
+
+  if (query === '') {
+    alertNoEmptySearch();
     return;
   }
-  try {
-    const searchData = await getPictures(searchQuery);
-    const { hits, totalHits } = searchData;
-    if (hits.length === 0) {
-      Notiflix.Notify.failure(
-        'Sorry, there are no images matching your search query. Please try again.'
-      );
-      return;
-    }
-    Notiflix.Notify.success(`Hooray! We found ${totalHits} images!`);
-    const markup = hits.map(item => createMarkup(item)).join('');
-    galleryRef.innerHTML = markup;
-    if (totalHits > 40) {
-      loadRef.classList.remove('js-load-btn');
-      page += 1;
-    }
-    lightbox.refresh();
-  } catch (error) {
-    Notiflix.Notify.failure('Something went wrong! Please retry');
-    console.log(error);
-  }
+
+  pixabay(query, page, perPage)
+    .then(({ data }) => {
+      if (data.totalHits === 0) {
+        alertNoImagesFound();
+      } else {
+        renderGallery(data.hits);
+        simpleLightBox = new SimpleLightbox('.gallery a').refresh();
+        alertImagesFound(data);
+
+        if (data.totalHits > perPage) {
+          loadMoreBtn.classList.remove('is-hidden');
+        }
+      }
+    })
+    .catch(error => console.log(error))
+    .finally(() => {
+      searchForm.reset();
+    });
 }
 
-async function onLoadClick() {
-  const response = await getPictures(query);
-  const { hits, totalHits } = response;
-  const markup = hits.map(item => createMarkup(item)).join('');
-  galleryRef.insertAdjacentHTML('beforeend', markup);
-  lightbox.refresh();
-  const amountOfPages = totalHits / 40 - page;
-  if (amountOfPages < 1) {
-    loadRef.classList.add('js-load-btn');
-    Notiflix.Notify.info(
-      "We're sorry, but you've reached the end of search results."
-    );
-  }
+function onLoadMoreBtn() {
+  page += 1;
+  simpleLightBox.destroy();
+
+  pixabay(query, page, perPage)
+    .then(({ data }) => {
+      renderGallery(data.hits);
+      simpleLightBox = new SimpleLightbox('.gallery a').refresh();
+
+      const totalPages = Math.ceil(data.totalHits / perPage);
+
+      if (page > totalPages) {
+        loadMoreBtn.classList.add('is-hidden');
+        alertEndOfSearch();
+      }
+    })
+    .catch(error => console.log(error));
+}
+
+function alertImagesFound(data) {
+  Notiflix.Notify.success(`Hooray! We found ${data.totalHits} images.`);
+}
+
+function alertNoEmptySearch() {
+  Notiflix.Notify.failure(
+    'The search string cannot be empty. Please specify your search query.'
+  );
+}
+
+function alertNoImagesFound() {
+  Notiflix.Notify.failure(
+    'Sorry, there are no images matching your search query. Please try again.'
+  );
+}
+
+function alertEndOfSearch() {
+  Notiflix.Notify.failure(
+    "We're sorry, but you've reached the end of search results."
+  );
 }
